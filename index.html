@@ -266,6 +266,14 @@ body.compact .exrowD.expanded .exsub{display:block}
 .toast.show{opacity:1}
 .section{display:none}
 .section.active{display:block}
+/* Fase 2: sync */
+.syncchip{border:1px solid var(--line-solid);background:var(--surface);color:var(--muted);border-radius:99px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer;font-family:'Inter';white-space:nowrap}
+.syncchip.ok{color:var(--green);border-color:var(--green-dark)}
+.syncchip.warn{color:var(--amber);border-color:#B8912E88}
+.loginbanner{display:flex;align-items:center;gap:11px;background:linear-gradient(135deg,#1E7A4522,var(--surface));border:1px solid var(--green-dark);border-radius:16px;padding:13px 15px;margin-bottom:12px}
+.loginbanner .lb-txt{flex:1;font-size:12px;color:var(--muted);line-height:1.4}
+.loginbanner .lb-txt b{color:var(--text);font-size:13px;display:block}
+.loginbanner button{background:var(--green);color:#06110A;border:0;border-radius:11px;padding:10px 14px;font-weight:800;font-size:12px;cursor:pointer;font-family:'Inter';flex-shrink:0}
 /* Paso A */
 .notefab{position:fixed;right:14px;bottom:calc(146px + env(safe-area-inset-bottom));z-index:35;width:52px;height:52px;border-radius:50%;background:var(--surface2);border:1px solid var(--green-dark);font-size:22px;cursor:pointer;box-shadow:0 6px 20px #000a}
 .repgrid{display:flex;flex-wrap:wrap;gap:7px;margin:6px 0 14px}
@@ -282,7 +290,10 @@ body.compact .exrowD.expanded .exsub{display:block}
 <header>
   <div class="h-row">
     <h1>GYM<em>TRACK</em></h1>
-    <div class="h-date" id="hdate"></div>
+    <div style="display:flex;align-items:center;gap:9px">
+      <button class="syncchip" id="syncchip" onclick="syncChipTap()">☁️ conectar</button>
+      <div class="h-date" id="hdate"></div>
+    </div>
   </div>
 </header>
 
@@ -390,7 +401,8 @@ const MEASURES=[
 /* ================= STORAGE + MIGRACIÓN ================= */
 const K={ex:'gt_exercises',rt:'gt_routine',hr:'gt_home',log:'gt_log',wh:'gt_weight_hist',v:'gt_version',cp:'gt_compact',ms:'gt_measures',bk:'gt_lastbackup'};
 function load(k,d){try{const x=localStorage.getItem(k);return x?JSON.parse(x):d}catch(e){return d}}
-function save(k,v){localStorage.setItem(k,JSON.stringify(v))}
+function save(k,v){localStorage.setItem(k,JSON.stringify(v));if(typeof markDirtyKey==='function')markDirtyKey(k)}
+function saveLog(ds){localStorage.setItem(K.log,JSON.stringify(LOG));if(typeof touchLog==='function')touchLog(ds)}
 let EX=load(K.ex,null),RT=load(K.rt,null),HT=load(K.hr,null),LOG=load(K.log,{}),WH=load(K.wh,{}),MS=load(K.ms,null);
 if(!EX){EX=DEFAULT_EX.concat(HOME_EX);save(K.ex,EX)}
 if(!RT){RT=DEFAULT_ROUTINE;save(K.rt,RT)}
@@ -542,7 +554,8 @@ function renderInicio(){
     todayBtn=`<button class="todaybtn" onclick="openDay('${tds}')"><div class="tb-day">HOY: ${esc(day.label).toUpperCase()}<span class="tb-sub">${st}</span></div><span class="tb-go">›</span></button>`;
   }
   let warn='';
-  if(backupOverdue())warn=`<div class="warnbox">⚠️ Hace más de 30 días que no haces respaldo de tus datos. <button onclick="exportData()">Exportar ahora</button></div>`;
+  if(window.FB&&!FBU)warn+=`<div class="loginbanner"><div class="lb-txt"><b>☁️ Respalda tus datos en la nube</b>Conecta tu cuenta de Google y tu historial queda a salvo aunque cambies de celular.</div><button onclick="fbLogin()">Conectar</button></div>`;
+  if(backupOverdue())warn+=`<div class="warnbox">⚠️ Hace más de 30 días que no haces respaldo de tus datos. <button onclick="exportData()">Exportar ahora</button></div>`;
   const first=new Date(calY,calM,1);
   const startDow=(first.getDay()+6)%7;
   const daysIn=new Date(calY,calM+1,0).getDate();
@@ -660,14 +673,14 @@ function renderSelector(dsS){
 function toggleLight(dsS){
   const dk=parseDate(dsS).getDay();
   const entry=getEntry(dsS,LOG[dsS]&&LOG[dsS].day!=null?LOG[dsS].day:dk);
-  if(entry.light){delete entry.light;save(K.log,LOG);renderSelector(dsS);toast('Sesión normal restaurada');return}
+  if(entry.light){delete entry.light;saveLog(dsS);renderSelector(dsS);toast('Sesión normal restaurada');return}
   openModal(`<h2>🔋 Sesión ligera</h2><div class="sub">Cada ejercicio con 1 serie menos (mín. 2) y guía de ~-10% de carga. Cuenta igual para tu racha — entrenar cansado con inteligencia también es disciplina.</div>
   <div class="mbtns"><button class="mb-no" onclick="closeModal()">Cancelar</button><button class="mb-ok" onclick="confirmLight('${dsS}')">Activar 🔋</button></div>`);
 }
 function confirmLight(dsS){
   const dk=parseDate(dsS).getDay();
   const entry=getEntry(dsS,LOG[dsS]&&LOG[dsS].day!=null?LOG[dsS].day:dk);
-  entry.light=true;save(K.log,LOG);closeModal();renderSelector(dsS);toast('🔋 Sesión ligera activada');
+  entry.light=true;saveLog(dsS);closeModal();renderSelector(dsS);toast('🔋 Sesión ligera activada');
 }
 function openNotes(dsS){
   const dk=parseDate(dsS).getDay();
@@ -693,7 +706,7 @@ function saveNote(dsS){
     entry.aq=true;
     toast('⚠️ Nota del Aquiles registrada — progresión de gemelos/hack congelada 14 días',true);
   }else toast('Nota guardada 📝');
-  save(K.log,LOG);
+  saveLog(dsS);
   closeModal();
 }
 function skipHome(dsS){
@@ -706,12 +719,12 @@ function confirmSkip(dsS){
   const dk=parseDate(dsS).getDay();
   const entry=getEntry(dsS,LOG[dsS]&&LOG[dsS].day!=null?LOG[dsS].day:dk);
   entry.hskip=true;
-  save(K.log,LOG);closeModal();renderSelector(dsS);
+  saveLog(dsS);closeModal();renderSelector(dsS);
   toast('Pase usado 🚫 — la semana sigue en pie');
 }
 function unskipHome(dsS){
   const entry=LOG[dsS];
-  if(entry){delete entry.hskip;save(K.log,LOG)}
+  if(entry){delete entry.hskip;saveLog(dsS)}
   renderSelector(dsS);
   toast('¡Así se habla! 🏠 Bloque retomado');
 }
@@ -766,7 +779,7 @@ function openBlock(dsS,blk){
     });
   }
   html+=`<button class="notefab" onclick="openNotes('${dsS}')">📝</button>`;
-  save(K.log,LOG);
+  saveLog(dsS);
   sec.innerHTML=html;
   window.scrollTo(0,0);
 }
@@ -892,7 +905,7 @@ function recordSet(dsS,dayKey,exId,block,reps,wUsed){
   entry[dkey][exId].push({r:reps,w:wUsed||undefined});
   const now=Date.now();
   if(block==='g'){if(!entry.t0)entry.t0=now;entry.t1=now}
-  save(K.log,LOG);
+  saveLog(dsS);
   const done=block==='h'?doneHSets(entry):doneSets(entry);
   const tot=block==='h'?totalHSets():totalSetsEntry(entry,dayKey);
   const e=exById(exId);
@@ -905,7 +918,7 @@ function recordSet(dsS,dayKey,exId,block,reps,wUsed){
     }else{
       const isBonus=doneOther>=HOME_GOAL;
       if(isBonus){
-        entry.hbonus=true;save(K.log,LOG);
+        entry.hbonus=true;saveLog(dsS);
         if(navigator.vibrate)navigator.vibrate([100,60,100,60,100,60,400]);
         openBlock(dsS,'h');
         openModal(`<h2 style="color:var(--gold)">⭐ ¡SEMANA ÉLITE!</h2><div class="sub">4ta sesión de casa esta semana — hiciste más de lo que debías. Esto es de otro nivel.</div>
@@ -944,7 +957,7 @@ function confirmPick(dsS){
   const d=+document.getElementById('rpick').value;
   const prev=LOG[dsS]||{};
   LOG[dsS]={day:d,prog:{},hprog:prev.hprog||{},hskip:prev.hskip,hbonus:prev.hbonus};
-  save(K.log,LOG);closeModal();openBlock(dsS,'g');
+  saveLog(dsS);closeModal();openBlock(dsS,'g');
   toast('¡Vamos con '+RT[d].label+'!');
 }
 function toggleCompact(dsS,blk){
@@ -1431,12 +1444,130 @@ function importData(){
         EX.forEach(e=>{if(e.rest==null)e.rest=COMPOUND.includes(e.id)?150:90});
         ['pantorrilla','cuello','pecho_m','hombros'].forEach(k=>{if(!MS[k])MS[k]=[]});
         save(K.ex,EX);save(K.rt,RT);save(K.hr,HT);save(K.log,LOG);save(K.wh,WH);save(K.ms,MS);
-        toast('Datos restaurados ✓');go('inicio');
+        toast('Datos restaurados ✓');fullResync();go('inicio');
       }catch(e){alert('Archivo no válido')}
     };
     rd.readAsText(f);
   };
   inp.click();
+}
+
+/* ================= SYNC FIREBASE (Fase 2) ================= */
+const SYNC_KEYS={};SYNC_KEYS[K.ex]='ex';SYNC_KEYS[K.rt]='rt';SYNC_KEYS[K.hr]='hr';SYNC_KEYS[K.wh]='wh';SYNC_KEYS[K.ms]='ms';
+let FBU=null,SY={busy:false};
+function dirty(){return load('gt_dirty',{keys:[],logs:[]})}
+function setDirty(d){localStorage.setItem('gt_dirty',JSON.stringify(d))}
+function markDirtyKey(k){
+  const sk=SYNC_KEYS[k];if(!sk)return;
+  const d=dirty();if(!d.keys.includes(sk)){d.keys.push(sk);setDirty(d)}
+  updateChip();queueSync();
+}
+function touchLog(ds){
+  const d=dirty();if(!d.logs.includes(ds)){d.logs.push(ds);setDirty(d)}
+  updateChip();queueSync();
+}
+function fullResync(){
+  const d={keys:['ex','rt','hr','wh','ms'],logs:Object.keys(LOG)};
+  setDirty(d);updateChip();queueSync();
+}
+function clean(x){return JSON.parse(JSON.stringify(x))}
+let syncTimer=null;
+function queueSync(){if(syncTimer)clearTimeout(syncTimer);syncTimer=setTimeout(syncPush,2500)}
+async function syncPush(){
+  if(!window.FB||!FBU||SY.busy||!navigator.onLine)return updateChip();
+  const d0=dirty();
+  if(!d0.keys.length&&!d0.logs.length)return updateChip();
+  SY.busy=true;updateChip('sync');
+  try{
+    const FB=window.FB;
+    const vals={ex:EX,rt:RT,hr:HT,wh:WH,ms:MS};
+    for(const sk of d0.keys.slice()){
+      await FB.setDoc(FB.doc(FB.db,'users',FBU.uid,'data',sk),{d:clean(vals[sk]),u:Date.now()});
+      const dd=dirty();dd.keys=dd.keys.filter(x=>x!==sk);setDirty(dd);
+      const ru=load('gt_ru',{});ru['data/'+sk]=Date.now();save2('gt_ru',ru);
+    }
+    for(const ds of d0.logs.slice()){
+      if(LOG[ds])await FB.setDoc(FB.doc(FB.db,'users',FBU.uid,'log',ds),{d:clean(LOG[ds]),u:Date.now()});
+      const dd=dirty();dd.logs=dd.logs.filter(x=>x!==ds);setDirty(dd);
+      const ru=load('gt_ru',{});ru['log/'+ds]=Date.now();save2('gt_ru',ru);
+    }
+  }catch(e){console.error('syncPush',e)}
+  SY.busy=false;updateChip();
+}
+function save2(k,v){localStorage.setItem(k,JSON.stringify(v))}
+async function syncPull(){
+  if(!window.FB||!FBU||!navigator.onLine)return;
+  updateChip('sync');
+  try{
+    const FB=window.FB;
+    const ru=load('gt_ru',{});
+    const dd=await FB.getDocs(FB.collection(FB.db,'users',FBU.uid,'data'));
+    let changed=false;
+    dd.forEach(s=>{
+      const sk=s.id,r=s.data();
+      if(r.u>(ru['data/'+sk]||0)){
+        if(sk==='ex'){EX=r.d;localStorage.setItem(K.ex,JSON.stringify(EX))}
+        if(sk==='rt'){RT=r.d;localStorage.setItem(K.rt,JSON.stringify(RT))}
+        if(sk==='hr'){HT=r.d;localStorage.setItem(K.hr,JSON.stringify(HT))}
+        if(sk==='wh'){WH=r.d;localStorage.setItem(K.wh,JSON.stringify(WH))}
+        if(sk==='ms'){MS=r.d;localStorage.setItem(K.ms,JSON.stringify(MS))}
+        ru['data/'+sk]=r.u;changed=true;
+      }
+    });
+    const ld=await FB.getDocs(FB.collection(FB.db,'users',FBU.uid,'log'));
+    ld.forEach(s=>{
+      const ds=s.id,r=s.data();
+      if(r.u>(ru['log/'+ds]||0)){LOG[ds]=r.d;ru['log/'+ds]=r.u;changed=true}
+    });
+    save2('gt_ru',ru);
+    if(changed){localStorage.setItem(K.log,JSON.stringify(LOG));renderInicio()}
+  }catch(e){console.error('syncPull',e)}
+  updateChip();
+}
+function updateChip(state){
+  const c=document.getElementById('syncchip');if(!c)return;
+  if(!window.FB){c.textContent='☁️ …';c.className='syncchip';return}
+  if(!FBU){c.textContent='☁️ conectar';c.className='syncchip';return}
+  if(state==='sync'){c.textContent='☁️ ⟳';c.className='syncchip';return}
+  if(!navigator.onLine){c.textContent='☁️ offline';c.className='syncchip warn';return}
+  const d=dirty();const n=d.keys.length+d.logs.length;
+  if(n>0){c.textContent='☁️ '+n+'↑';c.className='syncchip warn'}
+  else{c.textContent='☁️ ✓';c.className='syncchip ok'}
+}
+function syncChipTap(){
+  if(!window.FB){toast('Cargando Firebase… (revisa tu conexión)');return}
+  if(!FBU){fbLogin();return}
+  openModal(`<h2>☁️ Sincronización</h2><div class="sub">Conectado como <b>${esc(FBU.email||'')}</b><br>Tus datos se respaldan automáticamente en Firestore.</div>
+  <div class="mbtns"><button class="mb-no" onclick="fbLogout()">Cerrar sesión</button>
+  <button class="mb-ok" onclick="closeModal();syncPull().then(syncPush)">Sincronizar ahora</button></div>`);
+}
+function fbLogin(){
+  if(!window.FB)return;
+  window.FB.signInWithPopup(window.FB.auth,window.FB.provider).catch(()=>{window.FB.signInWithRedirect(window.FB.auth,window.FB.provider)});
+}
+function fbLogout(){
+  closeModal();
+  if(window.FB)window.FB.signOut(window.FB.auth);
+}
+function fbInit(FB){
+  window.FB=FB;
+  FB.onAuthStateChanged(FB.auth,async u=>{
+    FBU=u;
+    updateChip();
+    if(u){
+      if(!localStorage.getItem('gt_fullpush')){
+        fullResync();
+        localStorage.setItem('gt_fullpush','1');
+        toast('☁️ Primera sincronización: subiendo tu historial…',true);
+      }
+      await syncPull();
+      await syncPush();
+    }
+  });
+  window.addEventListener('online',()=>{updateChip();syncPush()});
+  window.addEventListener('offline',updateChip);
+  setInterval(()=>{const d=dirty();if(d.keys.length||d.logs.length)syncPush()},60000);
+  updateChip();
 }
 
 /* ================= ANÁLISIS SEMANAL ================= */
@@ -1494,6 +1625,27 @@ function closeModal(){document.getElementById('modalbg').classList.remove('open'
 /* ================= INIT ================= */
 renderInicio();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+
+<script type="module">
+try{
+  const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
+  const { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js');
+  const { getFirestore, doc, setDoc, collection, getDocs } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
+  const app = initializeApp({
+    apiKey: "AIzaSyCZHI3BcqkKvxIFralvMIPsrfVbGr37Nn4",
+    authDomain: "gymtrack-897b5.firebaseapp.com",
+    projectId: "gymtrack-897b5",
+    storageBucket: "gymtrack-897b5.firebasestorage.app",
+    messagingSenderId: "188592516083",
+    appId: "1:188592516083:web:5f25ebdbcf5b6b569d4086"
+  });
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  const provider = new GoogleAuthProvider();
+  getRedirectResult(auth).catch(()=>{});
+  fbInit({auth,db,provider,doc,setDoc,collection,getDocs,onAuthStateChanged,signInWithPopup,signInWithRedirect,signOut});
+}catch(e){console.warn('Firebase no disponible:',e)}
 </script>
 </body>
 </html>
