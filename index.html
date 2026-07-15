@@ -1543,7 +1543,17 @@ function syncChipTap(){
 }
 function fbLogin(){
   if(!window.FB)return;
-  window.FB.signInWithPopup(window.FB.auth,window.FB.provider).catch(()=>{window.FB.signInWithRedirect(window.FB.auth,window.FB.provider)});
+  toast('Abriendo login de Google…');
+  window.FB.signInWithPopup(window.FB.auth,window.FB.provider).catch(err=>{
+    const code=err&&err.code||'';
+    if(code==='auth/popup-blocked'||code==='auth/popup-closed-by-user'||code==='auth/cancelled-popup-request'){
+      toast('Popup bloqueado — probando con redirección…',true);
+      window.FB.signInWithRedirect(window.FB.auth,window.FB.provider).catch(e2=>alert('Login (redirect) falló: '+(e2.code||e2.message)));
+    }
+    else if(code==='auth/unauthorized-domain')alert('DOMINIO NO AUTORIZADO ⚠️\n\nEn Firebase: Authentication → Settings → Dominios autorizados → Agregar:\njh0708-cloude.github.io');
+    else if(code==='auth/operation-not-allowed')alert('PROVEEDOR GOOGLE NO HABILITADO ⚠️\n\nEn Firebase: Authentication → Sign-in method → Google → Habilitar');
+    else alert('Error de login: '+(code||err&&err.message||err));
+  });
 }
 function fbLogout(){
   closeModal();
@@ -1643,7 +1653,7 @@ try{
   const auth = getAuth(app);
   const db = getFirestore(app);
   const provider = new GoogleAuthProvider();
-  getRedirectResult(auth).catch(()=>{});
+  getRedirectResult(auth).catch(e=>{if(e&&e.code&&e.code!=='auth/no-auth-event')console.warn('redirect:',e.code)});
   fbInit({auth,db,provider,doc,setDoc,collection,getDocs,onAuthStateChanged,signInWithPopup,signInWithRedirect,signOut});
 }catch(e){console.warn('Firebase no disponible:',e)}
 </script>
