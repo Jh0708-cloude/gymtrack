@@ -403,8 +403,8 @@ const MEASURES=[
 /* ================= STORAGE + MIGRACIÓN ================= */
 const K={ex:'gt_exercises',rt:'gt_routine',hr:'gt_home',log:'gt_log',wh:'gt_weight_hist',v:'gt_version',cp:'gt_compact',ms:'gt_measures',bk:'gt_lastbackup'};
 function load(k,d){try{const x=localStorage.getItem(k);return x?JSON.parse(x):d}catch(e){return d}}
-function save(k,v){localStorage.setItem(k,JSON.stringify(v));if(typeof markDirtyKey==='function')markDirtyKey(k)}
-function saveLog(ds){localStorage.setItem(K.log,JSON.stringify(LOG));if(typeof touchLog==='function')touchLog(ds)}
+function save(k,v){localStorage.setItem(k,JSON.stringify(v));if(window.__syncReady&&typeof markDirtyKey==='function')markDirtyKey(k)}
+function saveLog(ds){localStorage.setItem(K.log,JSON.stringify(LOG));if(window.__syncReady&&typeof touchLog==='function')touchLog(ds)}
 let EX=load(K.ex,null),RT=load(K.rt,null),HT=load(K.hr,null),LOG=load(K.log,{}),WH=load(K.wh,{}),MS=load(K.ms,null);
 if(!EX){EX=DEFAULT_EX.concat(HOME_EX);save(K.ex,EX)}
 if(!RT){RT=DEFAULT_ROUTINE;save(K.rt,RT)}
@@ -464,6 +464,7 @@ if(localStorage.getItem(K.v)!=='4'){
   setSW(3,29,'35/30/30');setSW(6,29,'35/30/30');
   save(K.ex,EX);save(K.rt,RT);save(K.wh,WH);
   localStorage.setItem(K.v,'4');
+  localStorage.setItem('gt_needpush','1');
 }
 let mig=false;
 EX.forEach(e=>{if(e.rest==null){e.rest=COMPOUND.includes(e.id)?150:90;mig=true}});
@@ -1654,6 +1655,8 @@ function openModal(html){document.getElementById('modal').innerHTML=html;documen
 function closeModal(){document.getElementById('modalbg').classList.remove('open')}
 
 /* ================= INIT ================= */
+window.__syncReady=true;
+if(localStorage.getItem('gt_needpush')){localStorage.removeItem('gt_needpush');fullResync();}
 renderInicio();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
