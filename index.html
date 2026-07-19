@@ -466,6 +466,19 @@ if(localStorage.getItem(K.v)!=='4'){
   localStorage.setItem(K.v,'4');
   localStorage.setItem('gt_needpush','1');
 }
+/* v4b: proteger historial previo al 20 jul — congelar totales de días ya registrados */
+if(!localStorage.getItem('gt_v4b')){
+  Object.keys(LOG).forEach(ds=>{
+    if(ds<'2026-07-20'){
+      const e=LOG[ds];
+      const dn=Object.values(e&&e.prog||{}).reduce((a,b)=>a+b,0);
+      if(dn>0&&e.tp==null){e.tp=dn}
+    }
+  });
+  localStorage.setItem(K.log,JSON.stringify(LOG));
+  localStorage.setItem('gt_v4b','1');
+  localStorage.setItem('gt_needpush','1');
+}
 let mig=false;
 EX.forEach(e=>{if(e.rest==null){e.rest=COMPOUND.includes(e.id)?150:90;mig=true}});
 if(mig)save(K.ex,EX);
@@ -483,7 +496,7 @@ function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;',
 function toast(msg,long){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),long?3200:1800)}
 function totalSets(dayKey){return (RT[dayKey]&&RT[dayKey].items||[]).reduce((a,i)=>a+Number(i.s||0),0)}
 function effSetsOf(it,entry){return entry&&entry.light?Math.max(2,Number(it.s||0)-1):Number(it.s||0)}
-function totalSetsEntry(entry,dayKey){return (RT[dayKey]&&RT[dayKey].items||[]).reduce((a,i)=>a+effSetsOf(i,entry),0)}
+function totalSetsEntry(entry,dayKey){if(entry&&entry.tp!=null)return entry.tp;return (RT[dayKey]&&RT[dayKey].items||[]).reduce((a,i)=>a+effSetsOf(i,entry),0)}
 function itemFor(dayKey,exId,block){const list=block==='h'?(HT.items||[]):(RT[dayKey]&&RT[dayKey].items||[]);return list.find(i=>i.ex===exId)}
 function parseReps(r){const m=String(r).match(/(\d+)\s*-\s*(\d+)/);if(m)return[+m[1],+m[2]];const s=parseInt(r);return isNaN(s)?[8,12]:[s,s]}
 function lastActualBefore(exId,dsS){const dates=Object.keys(LOG).sort().reverse();for(const ds of dates){if(dsS&&ds>=dsS)continue;const e=LOG[ds];const arr=(e.sd&&e.sd[exId])||(e.hsd&&e.hsd[exId]);if(arr&&arr.length)return arr}return null}
@@ -827,7 +840,7 @@ function renderDayReadOnly(dsS,isPast){
         const dur=entry.t0&&entry.t1?' · ⏱ '+fmtDur(entry.t1-entry.t0):'';
         html+=`<div class="pbarbox"><div class="pbar"><i style="width:${pct}%"></i></div>
           <div class="pmeta"><span><b>${dn}</b> / ${tot} series${dur}</span><span>${pct}%</span></div></div>`;
-        day.items.forEach(it=>{const e=exById(it.ex);if(e)html+=roRow(e,it,(entry.prog||{})[it.ex]||0,(entry.sd||{})[it.ex])});
+        day.items.filter(it=>(entry.prog||{})[it.ex]!=null).forEach(it=>{const e=exById(it.ex);if(e)html+=roRow(e,it,(entry.prog||{})[it.ex]||0,(entry.sd||{})[it.ex])});
       }
     }else{
       html+=`<div class="previewnote">📅 Lo que toca este día — ${day.items.length} ejercicios, ${tot} series.</div>`;
@@ -934,6 +947,7 @@ function recordSet(dsS,dayKey,exId,block,reps,wUsed){
   if(done>=tot){
     stopTimer();
     if(block==='g'){
+      entry.tp=tot;saveLog(dsS);
       if(navigator.vibrate)navigator.vibrate([80,50,80,50,180]);
       openBlock(dsS,'g');
       showSummary(dsS,dayKey,entry,tot);
