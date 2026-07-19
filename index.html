@@ -338,7 +338,8 @@ const MUSCLES={
   Gemelo:'var(--gemelo)',Abs:'var(--abs)'
 };
 const COMPOUND=[1,6,11,13,14,15,16,17,24,25,26];
-const REHAB_IDS=[24,30];
+const REHAB_IDS=[24,30,34];
+const HOME_OPTIONAL=true;
 const DEFAULT_EX=[
  {id:1,name:'Press de pecho en máquina',m:'Pecho',w:'30 kg x lado'},
  {id:2,name:'Aperturas con mancuernas',m:'Pecho',w:'16 kg x lado'},
@@ -374,7 +375,8 @@ const HOME_EX=[
  {id:30,name:'Elevaciones de talón en escalón',m:'Gemelo',w:'Corporal (2 piernas)',rest:75},
  {id:31,name:'Gemelo sentado',m:'Gemelo',w:'10 kg sobre rodillas',rest:75},
  {id:32,name:'Crunch con peso',m:'Abs',w:'5 kg al pecho',rest:60},
- {id:33,name:'Elevaciones de piernas',m:'Abs',w:'Corporal',rest:60}
+ {id:33,name:'Elevaciones de piernas',m:'Abs',w:'Corporal',rest:60},
+ {id:34,name:'Gemelo en prensa',m:'Gemelo',w:'40 kg x lado',rest:75}
 ];
 const DEFAULT_ROUTINE={
  1:{label:'Push A',items:[{ex:1,s:4,r:'6-8'},{ex:2,s:3,r:'10-12'},{ex:3,s:3,r:'12-15'},{ex:6,s:4,r:'6-8'},{ex:7,s:3,r:'12-15'},{ex:11,s:3,r:'8-10'},{ex:12,s:3,r:'10-12'}]},
@@ -434,6 +436,35 @@ if(localStorage.getItem(K.v)!=='3'){
   localStorage.setItem(K.v,'3');
 }
 if(!HT||!HT.items){HT=JSON.parse(JSON.stringify(DEFAULT_HOME_T));save(K.hr,HT)}
+/* migración v4 (20 jul): gemelos/abs al gym + ajustes del entrenador sem.1 */
+if(localStorage.getItem(K.v)!=='4'){
+  const t4=todayStr();
+  HOME_EX.concat([{id:34,name:'Gemelo en prensa',m:'Gemelo',w:'40 kg x lado',rest:75}]).forEach(he=>{
+    if(!EX.find(e=>e.id===he.id)){EX.push(JSON.parse(JSON.stringify(he)))}
+    if(!WH[he.id])WH[he.id]=[{d:t4,w:he.w}];
+  });
+  function addTo(day,ex,s,r){if(RT[day]&&!RT[day].items.find(i=>i.ex===ex))RT[day].items.push({ex,s,r})}
+  addTo(3,34,3,'15-20');addTo(3,31,3,'20');
+  addTo(6,34,3,'15-20');
+  addTo(2,32,3,'12-15');addTo(2,33,3,'12-15');
+  addTo(4,32,3,'12-15');addTo(4,33,3,'12-15');
+  function setW(id,w){const e=EX.find(x=>x.id===id);if(e&&e.w!==w){e.w=w;if(!WH[id])WH[id]=[];WH[id].push({d:t4,w})}}
+  setW(4,'20 kg');setW(13,'50 kg');setW(21,'20 kg x brazo');setW(10,'25 kg (barra incl.)');
+  setW(23,'32 kg (echado)');setW(25,'15 kg x lado (rehab)');setW(24,'30 kg x lado (rehab, congelado 2 sem)');
+  function setSW(day,ex,sw){const it=RT[day]&&RT[day].items.find(i=>i.ex===ex);if(it)it.sw=sw}
+  setSW(1,1,'30/30/30/25');setSW(4,1,'30/30/30/25');
+  setSW(1,2,'18/16/16');
+  setSW(4,5,'15/15/15');
+  setSW(4,13,'55/50/50');
+  setSW(2,14,'50/45/45/45');setSW(5,14,'50/45/45/45');
+  setSW(2,15,'50/50/50/50');setSW(5,15,'50/50/50');
+  setSW(2,18,'16/14/14');
+  setSW(2,21,'20/20/15');
+  setSW(3,26,'60/75/75');setSW(6,26,'60/77/77/77');
+  setSW(3,29,'35/30/30');setSW(6,29,'35/30/30');
+  save(K.ex,EX);save(K.rt,RT);save(K.wh,WH);
+  localStorage.setItem(K.v,'4');
+}
 let mig=false;
 EX.forEach(e=>{if(e.rest==null){e.rest=COMPOUND.includes(e.id)?150:90;mig=true}});
 if(mig)save(K.ex,EX);
@@ -469,8 +500,8 @@ function homeStatsFor(ds){
   const idx=wk.indexOf(ds);
   let avail=0;
   for(let i=idx;i<7;i++){const x=wk[i];if(!homeComplete(x)&&!(LOG[x]&&LOG[x].hskip))avail++}
-  const need=Math.max(0,HOME_GOAL-done);
-  return {done,skipped,skipsLeft:Math.max(0,HOME_SKIPS-skipped),need,avail,mustDo:need>0&&need>=avail,bonusMode:done>=HOME_GOAL};
+  const need=HOME_OPTIONAL?0:Math.max(0,HOME_GOAL-done);
+  return {done,skipped,skipsLeft:Math.max(0,HOME_SKIPS-skipped),need,avail,mustDo:!HOME_OPTIONAL&&need>0&&need>=avail,bonusMode:!HOME_OPTIONAL&&done>=HOME_GOAL};
 }
 function eliteStats(){
   const weeks=new Set();let bonus=0;
@@ -543,14 +574,11 @@ function renderInicio(){
   let todayBtn;
   if(tKey===0){
     let sub='Recupera, mañana toca '+RT[(tk+1)%7].label;
-    if(!homeComplete(tds)&&!(tEntry&&tEntry.hskip))sub+=hs.mustDo?' · 🏠 OBLIGATORIO hoy':' · 🏠 disponible';
     if(homeComplete(tds))sub+=' · 🏠✓';
     todayBtn=`<button class="todaybtn restmode" onclick="openDay('${tds}')"><div class="tb-day">HOY: DESCANSO 🛌<span class="tb-sub">${sub}</span></div><span class="tb-go">›</span></button>`;
   }else{
     let st=dn>=tot&&tot>0?'✓ Gym completado':(dn>0?dn+'/'+tot+' series — sigue':day.items.length+' ejercicios');
     if(homeComplete(tds))st+=' · 🏠✓';
-    else if(tEntry&&tEntry.hskip)st+=' · 🏠 saltado';
-    else st+=hs.mustDo?' · 🏠 OBLIGATORIO':(hs.bonusMode?' · ⭐ bonus disponible':' · 🏠 pendiente');
     todayBtn=`<button class="todaybtn" onclick="openDay('${tds}')"><div class="tb-day">HOY: ${esc(day.label).toUpperCase()}<span class="tb-sub">${st}</span></div><span class="tb-go">›</span></button>`;
   }
   let warn='';
@@ -572,8 +600,6 @@ function renderInicio(){
     let hdot='';
     if(e2&&e2.hbonus)hdot=`<span class="hdot hdone">⭐</span>`;
     else if(homeComplete(dsS))hdot=`<span class="hdot hdone">🏠</span>`;
-    else if(e2&&e2.hskip)hdot=`<span class="hdot hskip">🚫</span>`;
-    else hdot=`<span class="hdot hpend">🏠</span>`;
     cells+=`<div class="cell ${st} ${dsS===tds?'today':''}" onclick="openDay('${dsS}')">${hdot}${dnum}<small>${kk===0?'💤':esc(shortLbl)}</small></div>`;
   }
   const streak=calcStreak();
@@ -581,7 +607,7 @@ function renderInicio(){
   sec.innerHTML=`
   ${warn}${todayBtn}
   <div class="streak"><span class="fire">🔥</span><div><b>${streak}</b> día${streak===1?'':'s'} de racha<br><span>entrenos gym completos</span></div>
-  <div class="hweek"><b>🏠 ${hs.done}/${HOME_GOAL}</b> semana · pases ${hs.skipped}/${HOME_SKIPS}<br><span>${el.elite>0?'⭐ '+el.elite+' semana'+(el.elite===1?'':'s')+' élite':'casa esta semana'}</span></div></div>
+  <div class="hweek"><b>🏠 ${hs.done}</b> esta semana<br><span>casa opcional${el.bonus>0?' · 🌟 '+el.bonus:''}</span></div></div>
   <div class="cal-head">
     <h2>${MESES[calM]} ${calY}</h2>
     <div class="cal-nav">
@@ -592,7 +618,7 @@ function renderInicio(){
   <div class="grid7">${cells}</div>
   <div class="legend">
     <span><i style="background:var(--green)"></i>Gym completo</span>
-    <span>🏠 Casa hecha</span><span>⭐ Bonus</span><span>🚫 Pase usado</span>
+    <span>🏠 Casa hecha (opcional)</span>
   </div>
   <p class="hint">Toca cualquier día para ver sus bloques 👆</p>`;
 }
@@ -652,20 +678,15 @@ function renderSelector(dsS){
       <div class="sc-sub">Usaste un pase · toca para retomarlo</div></div>
       <span class="sc-go">↩</span></button>`;
   }else{
-    const badge=hs.mustDo?'<span class="badge b-oblig">obligatorio</span>':(hs.bonusMode?'<span class="badge b-bonus">⭐ bonus</span>':'');
-    html+=`<button class="selcard ${hs.bonusMode?'bonusmode':''}" onclick="openBlock('${dsS}','h')">
+    html+=`<button class="selcard" onclick="openBlock('${dsS}','h')">
       <span class="sc-ico">🏠</span>
-      <div class="sc-body"><div class="sc-title">CASA — GEMELOS Y ABS${badge}</div>
-      <div class="sc-sub">${hDn>0?hDn+'/'+hTot+' series — sigue':(hs.bonusMode?'Meta cumplida — esta sería tu sesión élite ⭐':HT.items.length+' ejercicios · 15-20 min')}</div></div>
+      <div class="sc-body"><div class="sc-title">CASA — GEMELOS Y ABS<span class="badge b-done">opcional</span></div>
+      <div class="sc-sub">${hDn>0?hDn+'/'+hTot+' series — sigue':'Respaldo con tus pesas · gemelos/abs ya van en el gym'}</div></div>
       <span class="sc-go">›</span></button>`;
-    if(!hs.mustDo&&!hs.bonusMode&&hs.skipsLeft>0&&hDn===0){
-      html+=`<button class="skipbtn" onclick="skipHome('${dsS}')">Hoy no haré casa 🚫 (te quedan ${hs.skipsLeft} pase${hs.skipsLeft===1?'':'s'} esta semana)</button>`;
-    }
-    if(hs.mustDo)html+=`<div class="rehabnote">🔒 Casa obligatoria: te quedan ${hs.avail} día${hs.avail===1?'':'s'} y necesitas ${hs.need} sesión${hs.need===1?'':'es'} para cumplir la semana.</div>`;
   }
 
   const nNotes=(entry&&entry.notes||[]).length;
-  html+=`<div class="weeknote">🏠 Esta semana: <b>${hs.done}/${HOME_GOAL}</b> · pases usados: <b>${hs.skipped}/${HOME_SKIPS}</b>${hs.bonusMode?' · <b style="color:var(--gold)">⭐ modo bonus activo</b>':''}</div>`;
+  html+=`<div class="weeknote">🏠 Casa es opcional — gemelos y abs ahora van dentro de tus rutinas de gym 💪</div>`;
   html+=`<button class="notefab" onclick="openNotes('${dsS}')">📝${nNotes?'<span style="font-size:10px">'+nNotes+'</span>':''}</button>`;
   sec.innerHTML=html;
   window.scrollTo(0,0);
@@ -1610,7 +1631,7 @@ function buildWeekSummary(){
     }
   });
   const hs=homeStatsFor(tds);
-  out+='\nCASA semana: '+hs.done+'/'+HOME_GOAL+' · pases usados: '+hs.skipped+'/'+HOME_SKIPS+'\n';
+  out+='\nCASA (opcional, gemelos/abs integrados al gym): '+hs.done+' sesiones extra\n';
   out+='\nMEDIDAS (últimos valores):\n';
   MEASURES.forEach(m=>{const hh=MS[m.k]||[];if(hh.length){const l=hh[hh.length-1];out+='· '+m.n+': '+l.v+' '+m.u+' ('+l.d+')\n'}});
   out+='\nCAMBIOS DE PESO ÚLTIMOS 14 DÍAS:\n';
