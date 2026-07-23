@@ -554,22 +554,30 @@ function dayStatus(dateStr,dObj){
   if(d>0)return 'partial';
   return dk===0?'rest-d':'';
 }
+function weekGymCount(ds){
+  const wk=weekOf(ds);let c=0;
+  wk.forEach(x=>{const e=LOG[x];if(!e)return;const kk=e.day!=null?e.day:parseDate(x).getDay();const tot=totalSetsEntry(e,kk);if(tot>0&&doneSets(e)>=tot)c++});
+  return c;
+}
 function calcStreak(){
-  let streak=0;const now=new Date();
-  const tEntry=LOG[todayStr(now)];
-  const tk=now.getDay();
-  const tKey=tEntry&&tEntry.day!=null?tEntry.day:tk;
-  const tSE=totalSetsEntry(tEntry,tKey);
-  if(tEntry&&tSE>0&&doneSets(tEntry)>=tSE)streak++;
+  let streak=0;const now=new Date();const tds=todayStr(now);
+  const curMon=weekOf(tds)[0];
+  const tE=LOG[tds];const tk=now.getDay();
+  const tKey=tE&&tE.day!=null?tE.day:tk;
+  const tTot=tE?totalSetsEntry(tE,tKey):0;
+  if(tE&&tTot>0&&doneSets(tE)>=tTot)streak++;
   let d=new Date(now);d.setDate(d.getDate()-1);
   for(let i=0;i<730;i++){
-    const dk=d.getDay();
-    const e=LOG[todayStr(d)];
-    if(dk===0&&(!e||doneSets(e)===0)){d.setDate(d.getDate()-1);continue}
+    const ds=todayStr(d);
+    const e=LOG[ds];const dk=d.getDay();
     const kk=e&&e.day!=null?e.day:dk;
-    const tot=totalSetsEntry(e,kk);
-    if(e&&tot>0&&doneSets(e)>=tot){streak++;d.setDate(d.getDate()-1)}
-    else break;
+    const tot=e?totalSetsEntry(e,kk):totalSets(kk);
+    const done=e&&tot>0&&doneSets(e)>=tot;
+    if(done){streak++;d.setDate(d.getDate()-1);continue}
+    if(tot===0||(kk===0&&(!e||doneSets(e)===0))){d.setDate(d.getDate()-1);continue}
+    if(weekOf(ds)[0]===curMon){d.setDate(d.getDate()-1);continue}
+    if(weekGymCount(ds)>=6){d.setDate(d.getDate()-1);continue}
+    break;
   }
   return streak;
 }
@@ -675,6 +683,10 @@ function renderSelector(dsS){
       <div class="sc-sub">${gymDone?tot+' series completadas 🔥':dn+'/'+tot+' series · '+day.items.length+' ejercicios'}${entry&&entry.light?' · 🔋 ligera':''}</div></div>
       <span class="sc-go">›</span></button>`;
     if(!gymDone)html+=`<button class="skipbtn" onclick="toggleLight('${dsS}')">${entry&&entry.light?'🔋 Sesión ligera activa — tocar para volver a normal':'🔋 Hoy vengo cansado — sesión ligera (-1 serie, ~-10%)'}</button>`;
+    if(dn===0){
+      html+=`<button class="skipbtn" onclick="shiftWeek('${dsS}')">🔁 Recorrer rutinas +1 día (cubrir un día perdido)</button>`;
+      if(hasShift(dsS))html+=`<button class="skipbtn" onclick="clearShift('${dsS}')">↩ Restaurar semana estándar</button>`;
+    }
   }
 
   /* Tarjeta CASA */
@@ -762,6 +774,55 @@ function unskipHome(dsS){
   if(entry){delete entry.hskip;saveLog(dsS)}
   renderSelector(dsS);
   toast('¡Así se habla! 🏠 Bloque retomado');
+}
+
+function weekEff(dsS){
+  const wk=weekOf(dsS);
+  return wk.map(x=>{const e=LOG[x];const dk=parseDate(x).getDay();return e&&e.day!=null?e.day:dk});
+}
+function hasShift(dsS){
+  const wk=weekOf(dsS);const idx=wk.indexOf(dsS);
+  for(let i=idx;i<7;i++){
+    const e=LOG[wk[i]];
+    if(e&&e.day!=null&&e.day!==parseDate(wk[i]).getDay()&&doneSets(e)===0)return true;
+  }
+  return false;
+}
+function shiftWeek(dsS){
+  const wk=weekOf(dsS);const idx=wk.indexOf(dsS);
+  if(idx<=0){toast('Es lunes — no hay día previo que cubrir esta semana');return}
+  const eff=weekEff(dsS);
+  const hoyNuevo=RT[eff[idx-1]]?RT[eff[idx-1]].label:'?';
+  let plan='';
+  for(let i=idx;i<7;i++){
+    const dNm=DIAS[parseDate(wk[i]).getDay()].slice(0,3);
+    plan+=dNm+': '+(RT[eff[i-1]]?RT[eff[i-1]].label:'—')+(i<6?' · ':'');
+  }
+  openModal(`<h2>🔁 Recorrer rutinas +1 día</h2><div class="sub">Cada día restante hace la rutina del día anterior — el domingo absorbe el hueco y deja de ser descanso esta semana.</div>
+  <div class="preview" style="background:var(--surface2);border:1px solid var(--line-solid);border-radius:13px;padding:12px;margin-bottom:11px;font-size:12.5px">${plan}</div>
+  <div class="mbtns"><button class="mb-no" onclick="closeModal()">Cancelar</button>
+  <button class="mb-ok" onclick="confirmShift('${dsS}')">Recorrer (hoy: ${esc(hoyNuevo)})</button></div>`);
+}
+function confirmShift(dsS){
+  const wk=weekOf(dsS);const idx=wk.indexOf(dsS);
+  const eff=weekEff(dsS);
+  for(let i=idx;i<7;i++){
+    const ds=wk[i];
+    const e=getEntry(ds,eff[i-1]);
+    if(doneSets(e)>0)continue;
+    e.day=eff[i-1];
+    saveLog(ds);
+  }
+  closeModal();renderSelector(dsS);
+  toast('🔁 Semana recorrida — hoy toca '+RT[weekEff(dsS)[idx]].label);
+}
+function clearShift(dsS){
+  const wk=weekOf(dsS);const idx=wk.indexOf(dsS);
+  for(let i=idx;i<7;i++){
+    const ds=wk[i];const e=LOG[ds];
+    if(e&&doneSets(e)===0){delete e.day;saveLog(ds)}
+  }
+  renderSelector(dsS);toast('Semana estándar restaurada');
 }
 
 /* ================= VISTA DE BLOQUE ================= */
