@@ -401,11 +401,11 @@ const MEASURES=[
 ];
 
 /* ================= STORAGE + MIGRACIÓN ================= */
-const K={ex:'gt_exercises',rt:'gt_routine',hr:'gt_home',log:'gt_log',wh:'gt_weight_hist',v:'gt_version',cp:'gt_compact',ms:'gt_measures',bk:'gt_lastbackup'};
+const K={ex:'gt_exercises',rt:'gt_routine',hr:'gt_home',log:'gt_log',wh:'gt_weight_hist',v:'gt_version',cp:'gt_compact',ms:'gt_measures',bk:'gt_lastbackup',ai:'gt_ai'};
 function load(k,d){try{const x=localStorage.getItem(k);return x?JSON.parse(x):d}catch(e){return d}}
 function save(k,v){localStorage.setItem(k,JSON.stringify(v));if(window.__syncReady&&typeof markDirtyKey==='function')markDirtyKey(k)}
 function saveLog(ds){localStorage.setItem(K.log,JSON.stringify(LOG));if(window.__syncReady&&typeof touchLog==='function')touchLog(ds)}
-let EX=load(K.ex,null),RT=load(K.rt,null),HT=load(K.hr,null),LOG=load(K.log,{}),WH=load(K.wh,{}),MS=load(K.ms,null);
+let EX=load(K.ex,null),RT=load(K.rt,null),HT=load(K.hr,null),LOG=load(K.log,{}),WH=load(K.wh,{}),MS=load(K.ms,null),AI=load(K.ai,[]);
 if(!EX){EX=DEFAULT_EX.concat(HOME_EX);save(K.ex,EX)}
 if(!RT){RT=DEFAULT_ROUTINE;save(K.rt,RT)}
 if(!MS){MS={cintura:[{d:'2026-07-03',v:101}],cadera:[{d:'2026-07-03',v:105}],peso:[],brazo:[],pierna:[]};save(K.ms,MS)}
@@ -1462,7 +1462,17 @@ function renderRutina(){
   rows+=`<div class="blockhead" style="color:var(--casa)">🏠 CASA — plantilla única<span>disponible los 7 días · meta ${HOME_GOAL}×/semana</span></div>`;
   HT.items.forEach((it,idx)=>{rows+=rutRow(it,idx,'h')});
   rows+=`<button class="addbtn" onclick="addItem('h')">+ Agregar ejercicio (casa)</button>`;
+  const hasKey=!!localStorage.getItem('gt_apikey');
+  let aiHist='';
+  AI.slice(-3).reverse().forEach((a,i)=>{aiHist+=`<button style="display:block;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--line);color:var(--muted);font-size:12px;padding:8px 0;cursor:pointer;font-family:'Inter'" onclick="showAI(${AI.length-1-i})">📋 Análisis del ${a.d}</button>`});
   sec.innerHTML=`<div class="dayselect">${tabs}</div>${rows}
+  <div class="backup" style="margin-bottom:12px"><h3>🤖 Entrenador IA</h3>
+  <p>${hasKey?'Analiza tu semana directamente con Claude — la clave vive solo en este celular.':'Configura tu API key de Anthropic para activar el análisis automático (console.anthropic.com).'}</p>
+  <div class="btns">
+    <button onclick="openAIKey()">${hasKey?'🔑 Cambiar clave':'🔑 Configurar clave'}</button>
+    ${hasKey?`<button style="background:var(--green);color:#06110A;border-color:var(--green)" onclick="aiAnalyze()">🤖 Analizar mi semana</button>`:''}
+  </div>
+  ${aiHist}</div>
   <div class="backup"><h3>Respaldo de datos</h3>
   <p>Tus datos viven solo en este dispositivo. Exporta un respaldo de vez en cuando por si cambias de celular o limpias el navegador. Último respaldo: <b>${load(K.bk,'—')}</b></p>
   <div class="btns"><button onclick="exportData()">⬇ Exportar</button><button onclick="importData()">⬆ Importar</button><button onclick="exportWeek()">🤖 Semana</button></div>
@@ -1550,7 +1560,7 @@ function importData(){
 }
 
 /* ================= SYNC FIREBASE (Fase 2) ================= */
-const SYNC_KEYS={};SYNC_KEYS[K.ex]='ex';SYNC_KEYS[K.rt]='rt';SYNC_KEYS[K.hr]='hr';SYNC_KEYS[K.wh]='wh';SYNC_KEYS[K.ms]='ms';
+const SYNC_KEYS={};SYNC_KEYS[K.ex]='ex';SYNC_KEYS[K.rt]='rt';SYNC_KEYS[K.hr]='hr';SYNC_KEYS[K.wh]='wh';SYNC_KEYS[K.ms]='ms';SYNC_KEYS[K.ai]='ai';
 let FBU=null,SY={busy:false};
 function dirty(){return load('gt_dirty',{keys:[],logs:[]})}
 function setDirty(d){localStorage.setItem('gt_dirty',JSON.stringify(d))}
@@ -1577,7 +1587,7 @@ async function syncPush(){
   SY.busy=true;updateChip('sync');
   try{
     const FB=window.FB;
-    const vals={ex:EX,rt:RT,hr:HT,wh:WH,ms:MS};
+    const vals={ex:EX,rt:RT,hr:HT,wh:WH,ms:MS,ai:AI};
     for(const sk of d0.keys.slice()){
       await FB.setDoc(FB.doc(FB.db,'users',FBU.uid,'data',sk),{d:clean(vals[sk]),u:Date.now()});
       const dd=dirty();dd.keys=dd.keys.filter(x=>x!==sk);setDirty(dd);
@@ -1608,6 +1618,7 @@ async function syncPull(){
         if(sk==='hr'){HT=r.d;localStorage.setItem(K.hr,JSON.stringify(HT))}
         if(sk==='wh'){WH=r.d;localStorage.setItem(K.wh,JSON.stringify(WH))}
         if(sk==='ms'){MS=r.d;localStorage.setItem(K.ms,JSON.stringify(MS))}
+        if(sk==='ai'){AI=r.d;localStorage.setItem(K.ai,JSON.stringify(AI))}
         ru['data/'+sk]=r.u;changed=true;
       }
     });
@@ -1675,6 +1686,81 @@ function fbInit(FB){
   window.addEventListener('offline',updateChip);
   setInterval(()=>{const d=dirty();if(d.keys.length||d.logs.length)syncPush()},60000);
   updateChip();
+}
+
+/* ================= ENTRENADOR IA (Paso C) ================= */
+const COACH_SYS=`Eres el entrenador personal de Jhair (Lima, Perú). Contexto fijo:
+- Objetivo: recomposición corporal. MÉTRICA PRIMARIA: cintura (meta 85 cm para el 31/10/2026, inicio 101 cm). El peso corporal es solo apoyo (referencia 80 kg).
+- Rutina PPL 6 días: L Push A, M Pull A, X Pierna A, J Push B, V Pull B, S Pierna B, D descanso. Gemelos/abs integrados al gym. Casa opcional.
+- PROTOCOLO AQUILES (INNEGOCIABLE): rehabilitación de tendón de Aquiles. Hack, gemelos (prensa/sentado/talón) y búlgaras: progresión conservadora. Cualquier nota que mencione molestia en Aquiles/tendón = congelar subidas de esos ejercicios 14 días. Hack actualmente congelado en 30 kg/lado hasta ~02/08.
+- Reglas de progresión: doble progresión (tope de reps 2 sesiones seguidas → subir). Subidas máximas: +2 kg aislamientos, +5 kg máquinas/compuestos. Nunca más de eso por semana.
+- Nutrición: si la cintura baja ≥0.5 cm/quincena, NO tocar el déficit. Estancada 2 quincenas → recortar ~150 kcal de carbos (nunca proteína).
+- Deload: cada 6-8 semanas, semana ligera (-40% volumen). Sugerirlo cuando corresponda.
+- Sesiones ligeras 🔋 y semanas recuperadas (6/6 con domingo) son válidas, no fallos.
+Recibirás el resumen semanal de su app GymTrack. Responde en español peruano informal, conciso y directo:
+1) RESUMEN (2-3 líneas: lo bueno y lo preocupante)
+2) AJUSTES POR EJERCICIO (solo los que cambian, con pesos concretos y esquema por serie si aplica, ej: "prensa: 60/77/77/77 → mantener")
+3) ALERTAS (Aquiles, fatiga, patrones en notas)
+4) PARA LA APP (lista corta de pesos oficiales a actualizar en Progresión)
+Sé conservador: ante la duda, mantener antes que subir.`;
+function openAIKey(){
+  const cur=localStorage.getItem('gt_apikey')||'';
+  openModal(`<h2>🔑 API Key de Anthropic</h2><div class="sub">Se guarda SOLO en este celular (nunca en GitHub ni en la nube). La creas en console.anthropic.com → API Keys.</div>
+  <input id="akey" type="password" placeholder="sk-ant-..." value="${esc(cur)}">
+  <div class="mbtns"><button class="mb-no" onclick="closeModal()">Cancelar</button>
+  <button class="mb-ok" onclick="saveAIKey()">Guardar</button></div>`);
+}
+function saveAIKey(){
+  const v=document.getElementById('akey').value.trim();
+  if(v)localStorage.setItem('gt_apikey',v);
+  else localStorage.removeItem('gt_apikey');
+  closeModal();renderRutina();toast(v?'Clave guardada 🔑':'Clave eliminada');
+}
+async function aiAnalyze(){
+  const key=localStorage.getItem('gt_apikey');
+  if(!key){openAIKey();return}
+  openModal(`<h2>🤖 Analizando…</h2><div class="sub">Enviando tu semana al entrenador. Esto toma unos segundos.</div>`);
+  try{
+    const sum=buildWeekSummary();
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{
+        'content-type':'application/json',
+        'x-api-key':key,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body:JSON.stringify({
+        model:'claude-sonnet-4-6',
+        max_tokens:1500,
+        system:COACH_SYS,
+        messages:[{role:'user',content:sum}]
+      })
+    });
+    const j=await res.json();
+    if(!res.ok)throw new Error((j.error&&j.error.message)||('HTTP '+res.status));
+    const txt=(j.content||[]).map(b=>b.text||'').join('\n').trim();
+    if(!txt)throw new Error('Respuesta vacía');
+    AI.push({d:todayStr(),txt});
+    if(AI.length>20)AI=AI.slice(-20);
+    save(K.ai,AI);
+    showAI(AI.length-1);
+    if(navigator.vibrate)navigator.vibrate([60,40,60]);
+  }catch(e){
+    const msg=String(e.message||e);
+    let ayuda='';
+    if(msg.includes('401')||msg.toLowerCase().includes('auth'))ayuda='<br><br>Parece clave inválida — revísala en 🔑.';
+    if(msg.toLowerCase().includes('credit')||msg.toLowerCase().includes('billing'))ayuda='<br><br>Parece falta de crédito — revisa Billing en console.anthropic.com.';
+    openModal(`<h2>⚠️ Error</h2><div class="sub">${esc(msg)}${ayuda}</div>
+    <div class="mbtns"><button class="mb-no" onclick="closeModal()">Cerrar</button>
+    <button class="mb-ok" onclick="aiAnalyze()">Reintentar</button></div>`);
+  }
+}
+function showAI(idx){
+  const a=AI[idx];if(!a)return;
+  openModal(`<h2>🤖 Análisis — ${a.d}</h2><div class="sub">Tu entrenador propone, tú decides. Aplica los cambios en Progresión y Rutina.</div>
+  <div style="white-space:pre-wrap;font-size:13px;line-height:1.55;background:var(--surface2);border:1px solid var(--line-solid);border-radius:13px;padding:14px;margin-bottom:12px;max-height:50vh;overflow-y:auto">${esc(a.txt)}</div>
+  <div class="mbtns"><button class="mb-no" onclick="closeModal()">Cerrar</button></div>`);
 }
 
 /* ================= ANÁLISIS SEMANAL ================= */
