@@ -843,11 +843,14 @@ const SYS=`Eres el entrenador personal de Jhair (Lima, Perú). Contexto:
 - PROTOCOLO AQUILES INNEGOCIABLE: hack, búlgaras, gemelos y prensa son sensibles. Cualquier molestia reportada congela subidas 14 días.
 - Progresión: doble progresión. Máximos por semana: +5 kg máquinas/compuestos, +2 kg aislamientos. Nunca más.
 - Deload cada 6-8 semanas.
-Responde en español peruano, directo y conciso. Estructura:
+Responde en español peruano, directo. REGLAS DE FORMATO ESTRICTAS:
+- Texto plano: NADA de markdown, sin asteriscos, sin almohadillas, sin guiones de lista.
+- Máximo 200 palabras en la parte de texto. Sé breve: el detalle va en las propuestas.
+Estructura:
 1) LECTURA (2-3 líneas)
-2) AJUSTES (por ejercicio, concretos)
-3) ALERTAS
-Y AL FINAL, obligatorio, un bloque de propuestas aplicables en JSON puro entre etiquetas, sin markdown:
+2) AJUSTES (una línea por ejercicio)
+3) ALERTAS (solo si hay)
+Y AL FINAL, obligatorio y completo, el bloque de propuestas en JSON puro entre etiquetas (máximo 8 propuestas, motivo de máximo 12 palabras):
 <props>[{"ex":14,"tipo":"peso","valor":50,"porLado":false,"esquema":[50,45,45,45],"motivo":"texto corto"}]</props>
 Usa "tipo":"peso" para cambios de carga. Si no hay cambios, devuelve <props>[]</props>. Los ids son los que aparecen en el catálogo del resumen.`;
 function rCoach(){
@@ -859,8 +862,9 @@ function rCoach(){
   <div class="ps-m">desde ${PLAN.since} — ${esc(PLAN.note||'')}</div></div>`;
   const fr=aqFrozen();
   if(fr)h+=`<div class="warnbox">🧊 Aquiles: progresión congelada hasta ${fr} en hack, búlgaras y gemelos</div>`;
+  if(!props.length&&AI.length)h+=`<div class="card" style="border-style:dashed"><p style="font-size:12.5px;color:var(--muted);margin:0">Sin propuestas pendientes. Cuando el análisis sugiera cambios de carga, aparecerán aquí como tarjetas para aplicar o rechazar.</p></div>`;
   if(props.length){
-    h+=`<div class="lbl" style="margin:14px 0 8px">Propuestas pendientes</div>`;
+    h+=`<div class="lbl" style="margin:14px 0 8px">Propuestas pendientes · toca ✓ y la app cambia el peso sola</div>`;
     props.forEach((p,i)=>{
       const x=ex(p.ex);if(!x)return;
       const blocked=x.aq>=2&&fr;
@@ -947,17 +951,28 @@ async function runAI(){
     const r=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:2000,system:SYS,messages:[{role:'user',content:buildCtx()}]})
+      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:4000,system:SYS,messages:[{role:'user',content:buildCtx()}]})
     });
     const j=await r.json();
     if(!r.ok)throw new Error((j.error&&j.error.message)||('HTTP '+r.status));
     let txt=(j.content||[]).map(b=>b.text||'').join('\n').trim();
-    let props=[];
+    let props=[],raw=null;
     const m=txt.match(/<props>([\s\S]*?)<\/props>/);
-    if(m){
-      try{props=JSON.parse(m[1].trim())}catch(e){}
-      txt=txt.replace(m[0],'').trim();
+    if(m){raw=m[1];txt=txt.replace(m[0],'').trim()}
+    else{
+      const i=txt.indexOf('<props>');
+      if(i>=0){raw=txt.slice(i+7);txt=txt.slice(0,i).trim()}
     }
+    if(raw){
+      raw=raw.replace(/```json|```/g,'').trim();
+      try{props=JSON.parse(raw)}
+      catch(e){
+        const objs=raw.match(/\{[^{}]*\}/g)||[];
+        objs.forEach(s=>{try{const p=JSON.parse(s);if(p&&p.ex!=null)props.push(p)}catch(x){}});
+      }
+    }
+    if(!Array.isArray(props))props=[];
+    txt=txt.replace(/\*\*/g,'').replace(/^#+\s*/gm,'').replace(/^\s*[-–]\s+/gm,'· ').trim();
     props=props.filter(p=>{
       const x=ex(p.ex);if(!x||p.tipo!=='peso')return false;
       const cur=x.w.bw?0:x.w.v;
@@ -970,7 +985,7 @@ async function runAI(){
     AI.push({d:tds(),txt});if(AI.length>20)AI=AI.slice(-20);
     save(K.ai,AI);
     closeM();rCoach();
-    toast(props.length?props.length+' propuestas listas para revisar':'Análisis listo');
+    toast(props.length?props.length+' propuestas listas en Entrenador':'Análisis listo (sin cambios propuestos)');
     if(navigator.vibrate)navigator.vibrate([60,40,60]);
   }catch(e){
     const msg=String(e.message||e);
