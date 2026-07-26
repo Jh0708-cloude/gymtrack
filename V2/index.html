@@ -80,6 +80,7 @@ nav button.on{color:var(--brand)}
 .loadrow.low .lv{color:var(--warn)}
 .loadrow.opt .lv{color:var(--brand)}
 .loadrow.high .lv{color:var(--push)}
+.shiftbtn{width:100%;background:none;border:1px dashed var(--line);border-radius:13px;padding:11px;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;font-family:'Inter';margin:-4px 0 12px}
 .legend{display:flex;gap:12px;font-size:10.5px;color:var(--dim);margin-top:10px;flex-wrap:wrap}
 .legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:4px;vertical-align:-1px}
 /* MODO ENTRENO */
@@ -432,6 +433,10 @@ function rEntrenar(){
       <div class="t-meta"><span><b>${d.it.length}</b> ejercicios</span><span><b>${tot}</b> series</span><span>≈ <b>${fmtMin(dur)}</b></span></div>
       <button class="bigbtn" onclick="startTrain('${ds}')" style="background:${ac}">${dn>=tot&&tot>0?'REVISAR ✓':(dn>0?'CONTINUAR · '+dn+'/'+tot:'EMPEZAR')}</button></div>`;
   }
+  if(dn===0){
+    html+=`<button class="shiftbtn" onclick="shiftWeek('${ds}')">🔁 Recorrer rutinas +1 día (cubrir un día perdido)</button>`;
+    if(hasShift(ds))html+=`<button class="shiftbtn" onclick="clearShift('${ds}')">↩ Restaurar semana estándar</button>`;
+  }
   const wk=weekOf(ds);
   html+=`<div class="lbl" style="margin:2px 0 8px">Tu semana</div><div class="week">`;
   wk.forEach(x=>{
@@ -485,6 +490,41 @@ function openDay(ds){
   h+=`<div class="mb"><button onclick="closeM()">Cerrar</button></div>`;
   openM(h);
 }
+function weekEff(ds){return weekOf(ds).map(x=>dayKeyOf(x))}
+function hasShift(ds){
+  const wk=weekOf(ds),i=wk.indexOf(ds);
+  for(let j=i;j<7;j++){const e=LOG[wk[j]];if(e&&e.day!=null&&e.day!==pd(wk[j]).getDay()&&doneSets(e)===0)return true}
+  return false;
+}
+function shiftWeek(ds){
+  const wk=weekOf(ds),i=wk.indexOf(ds);
+  if(i<=0){toast('Es lunes — no hay día previo que cubrir');return}
+  const ef=weekEff(ds);
+  let plan='';
+  for(let j=i;j<7;j++){
+    const nk=ef[j-1];
+    plan+=DS3[pd(wk[j]).getDay()]+': '+(PLAN.days[nk]?PLAN.days[nk].l:'—')+(j<6?' · ':'');
+  }
+  openM(`<h2>🔁 Recorrer +1 día</h2><div class="sub">Cada día restante toma la rutina del día anterior. El domingo absorbe el hueco.</div>
+  <div class="lastline">${esc(plan)}</div>
+  <div class="mb"><button onclick="closeM()">Cancelar</button><button class="ok" onclick="doShift('${ds}')">Recorrer</button></div>`);
+}
+function doShift(ds){
+  const wk=weekOf(ds),i=wk.indexOf(ds),ef=weekEff(ds);
+  for(let j=i;j<7;j++){
+    const x=wk[j],e=LOG[x];
+    if(e&&doneSets(e)>0)continue;
+    const en=entry(x,ef[j-1]);en.day=ef[j-1];saveLog(x);
+  }
+  closeM();rEntrenar();
+  toast('🔁 Hoy toca '+PLAN.days[dayKeyOf(ds)].l);
+}
+function clearShift(ds){
+  const wk=weekOf(ds),i=wk.indexOf(ds);
+  for(let j=i;j<7;j++){const x=wk[j],e=LOG[x];if(e&&doneSets(e)===0){delete e.day;saveLog(x)}}
+  rEntrenar();toast('Semana estándar restaurada');
+}
+
 /* ============ MODO ENTRENO ============ */
 let TR={ds:null,dk:0,i:0,mode:'focus'};
 function startTrain(ds){
